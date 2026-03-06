@@ -103,13 +103,13 @@ python analyze_results.py eval_results_emulator.json
 ================================================================================
 LocalStack: EVALUATION COMPLETE
 ================================================================================
-Total commands: 260
-Successful: 122 (46.9%)
-Failed: 138 (53.1%)
-Total runtime: 1947.95s (32.47 minutes)
+Total commands: 274
+Successful: 131 (47.8%)
+Failed: 143 (52.2%)
+Total runtime: 2062.94s (34.38 minutes)
 
 ================================================================================
-EVALUATION COMPLETE
+Our Emulator: EVALUATION COMPLETE
 ================================================================================
 Total commands: 274
 Successful: 221 (80.7%)
