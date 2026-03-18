@@ -38,6 +38,13 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Download Vera docker-compose
+      shell: bash
+      run: |
+        curl -fsSL \
+          https://raw.githubusercontent.com/project-vera/vera/main/docker-compose.yml \
+          -o /tmp/vera-docker-compose.yml
+
     - name: Start emulators
       shell: bash
       run: |
@@ -45,8 +52,7 @@ runs:
         [ "${{ inputs.start-aws }}" = "true" ] && SERVICES="$SERVICES vera-aws"
         [ "${{ inputs.start-gcp }}" = "true" ] && SERVICES="$SERVICES vera-gcp"
         docker compose \
-          -f "${GITHUB_WORKSPACE}/docker-compose.yml" \
-          --project-directory "${GITHUB_WORKSPACE}" \
+          -f /tmp/vera-docker-compose.yml \
           up --build --detach $SERVICES
 
     - name: Wait for AWS emulator
@@ -60,7 +66,7 @@ runs:
           if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
             echo "Timed out waiting for AWS emulator after ${TIMEOUT}s"
             echo "=== vera-aws logs ==="
-            docker compose -f "${GITHUB_WORKSPACE}/docker-compose.yml" --project-directory "${GITHUB_WORKSPACE}" logs vera-aws
+            docker compose -f /tmp/vera-docker-compose.yml logs vera-aws
             exit 1
           fi
           sleep 1
@@ -79,7 +85,7 @@ runs:
           if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
             echo "Timed out waiting for GCP emulator after ${TIMEOUT}s"
             echo "=== vera-gcp logs ==="
-            docker compose -f "${GITHUB_WORKSPACE}/docker-compose.yml" --project-directory "${GITHUB_WORKSPACE}" logs vera-gcp
+            docker compose -f /tmp/vera-docker-compose.yml logs vera-gcp
             exit 1
           fi
           sleep 1
