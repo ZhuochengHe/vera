@@ -15,7 +15,8 @@ def has_id_parameter(command):
         r'--id\b',             # Matches --id exactly
         r'--[\w-]*-ids\b',     # Matches --instance-ids, --vpc-endpoint-ids, etc.
         r'--ids\b',            # Matches --ids exactly
-        r'--[\w-]*-arn\b',     # Matches --arn-id, --arn-ids, etc.
+        r'--[\w-]*-arn[\b\s]', # Matches --backup-arn, --table-arn, etc.
+        r'--[\w-]*-arnarn:',   # Matches RST typo --backup-arnarn:aws:...
         r'--arn\b',            # Matches --arn exactly
         r'--resources\b',      # Matches --resources exactly
     ]
@@ -87,14 +88,21 @@ def parse_aws_commands(file_path):
             # Found an AWS command, now collect all continuation lines
             command_lines = [stripped]
             
-            # Check for line continuations (backslash at end)
+            # Check for line continuations (backslash at end, or unclosed quotes)
             j = i + 1
-            while j < len(lines) and (command_lines[-1].endswith('\\') or command_lines[-1].endswith('^') or command_lines[-1].endswith('`')):
+            while j < len(lines):
+                last = command_lines[-1]
+                joined = ' '.join(command_lines)
+                has_continuation = last.endswith('\\') or last.endswith('^') or last.endswith('`')
+                # Count unescaped double-quotes in what we have so far
+                unmatched_quotes = joined.count('"') % 2 == 1
+                if not has_continuation and not unmatched_quotes:
+                    break
                 next_line = lines[j].strip()
-                if next_line:  # Skip empty lines
+                if next_line:
                     command_lines.append(next_line)
                 j += 1
-            
+
             # Join the command lines
             # handle ^ and ` in the command, replace with \\
             command_lines = [line.replace('^', '\\').replace('`', '\\') for line in command_lines]

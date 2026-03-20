@@ -41,6 +41,8 @@ DYNAMIC_KEYS = {
     "TableNames",   # contains real account table names in RST golden output
     "NextToken",    # pagination token; value is fake in RST
     "TableStatus",  # CREATING/DELETING are transient; vera transitions synchronously
+    "IndexStatus",          # same reason — GSI index status is transient
+    "NumberOfDecreasesToday",  # not returned by DynamoDB Local
 }
 
 
