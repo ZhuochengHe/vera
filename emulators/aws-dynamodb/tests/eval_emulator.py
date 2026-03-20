@@ -38,12 +38,25 @@ DYNAMIC_KEYS = {
     "ItemCount",
     "TableSizeBytes",
     "IndexSizeBytes",
-    "TableNames",   # contains real account table names in RST golden output
-    "NextToken",    # pagination token; value is fake in RST
-    "TableStatus",  # CREATING/DELETING are transient; vera transitions synchronously
-    "IndexStatus",          # same reason — GSI index status is transient
+    "TableNames",          # contains real account table names in RST golden output
+    "NextToken",           # pagination token; value is fake in RST
     "NumberOfDecreasesToday",  # not returned by DynamoDB Local
 }
+
+# Status fields that are compared semantically rather than literally.
+# vera completes transitions synchronously, so RST transient states
+# (CREATING, DELETING, UPDATING) map to their terminal equivalents.
+_STATUS_EQUIVALENCES = {
+    "CREATING": "ACTIVE",
+    "UPDATING": "ACTIVE",
+    "DELETING": "DELETING",  # both sides should be DELETING or absent
+}
+STATUS_KEYS = {"TableStatus", "IndexStatus"}
+
+
+def _normalize_status(value: str) -> str:
+    """Map transient status to its terminal equivalent for comparison."""
+    return _STATUS_EQUIVALENCES.get(value, value)
 
 
 def strip_dynamic(obj):
@@ -59,26 +72,29 @@ def _sort_key(obj):
     return json.dumps(obj, sort_keys=True)
 
 
-def is_subset(expected, actual) -> bool:
+def is_subset(expected, actual, _key=None) -> bool:
     """
     Return True if every key/value in expected exists in actual (recursively).
     Lists of dicts are compared as unordered sets (order-independent).
+    Status fields (TableStatus, IndexStatus) are compared after normalizing
+    transient states (CREATING→ACTIVE, UPDATING→ACTIVE).
     """
     if isinstance(expected, dict) and isinstance(actual, dict):
         return all(
-            k in actual and is_subset(v, actual[k])
+            k in actual and is_subset(v, actual[k], _key=k)
             for k, v in expected.items()
         )
     if isinstance(expected, list) and isinstance(actual, list):
         if len(expected) != len(actual):
             return False
-        # Sort both sides by JSON representation for order-independent comparison
         try:
             exp_sorted = sorted(expected, key=_sort_key)
             act_sorted = sorted(actual, key=_sort_key)
             return all(is_subset(e, a) for e, a in zip(exp_sorted, act_sorted))
         except TypeError:
             return all(is_subset(e, a) for e, a in zip(expected, actual))
+    if _key in STATUS_KEYS and isinstance(expected, str) and isinstance(actual, str):
+        return _normalize_status(expected) == _normalize_status(actual)
     return expected == actual
 
 

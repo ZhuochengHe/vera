@@ -218,23 +218,31 @@ Test commands are sourced from 41 RST example files crawled from the [aws-cli ex
 
 | Filter | Count | Reason |
 |---|---|---|
-| Contains `--*-id` / `--*-arn` parameters | 7 | Require dynamically generated IDs unavailable at test time |
+| Contains `--*-id` / `--*-arn` parameters | 8 | Require dynamically generated IDs unavailable at test time |
 | Contains `file://` parameters | 23 | Require local fixture files not present in the test environment |
-| **Runnable** | **44** | Executed by the evaluator |
+| **Runnable** | **43** | Executed by the evaluator |
 
 ### Output comparison
 
-The evaluator compares actual emulator output against the RST golden output after stripping fields whose values are inherently dynamic or environment-specific:
+The evaluator compares actual emulator output against the RST golden output after stripping or normalizing fields that differ between local and real AWS:
 
-| Ignored field | Reason |
+**Stripped fields** (removed from both sides before comparison):
+
+| Field | Reason |
 |---|---|
-| `TableStatus` | vera completes state transitions synchronously; RST shows transient states (`CREATING`, `DELETING`) that never appear in practice |
 | `CreationDateTime`, `LastIncreaseDateTime`, `LastDecreaseDateTime`, `LastUpdateToPayPerRequestDateTime`, `LatestStreamLabel` | Timestamps differ every run |
 | `TableArn`, `IndexArn`, `LatestStreamArn` | ARNs contain account ID and region, which differ from real AWS |
 | `TableId` | UUID generated per-run |
 | `ItemCount`, `TableSizeBytes`, `IndexSizeBytes` | Runtime data, not present at table creation |
 | `TableNames` | RST golden output contains real AWS account table names |
 | `NextToken` | RST pagination tokens are fake placeholders |
+| `NumberOfDecreasesToday` | DynamoDB Local does not track daily throughput decrease counts |
+
+**Semantically compared fields** (present in comparison but normalized):
+
+| Field | Normalization |
+|---|---|
+| `TableStatus`, `IndexStatus` | Transient states map to their terminal equivalent: `CREATING` → `ACTIVE`, `UPDATING` → `ACTIVE`. vera completes state transitions synchronously, so the emulator never returns transient states. |
 
 Comparison uses **subset matching**: expected fields must be present and equal in the actual response, but the actual response may contain additional fields. List fields (e.g. `AttributeDefinitions`, `KeySchema`) are compared order-independently.
 
@@ -244,15 +252,14 @@ Comparison uses **subset matching**: expected fields must be present and equal i
 
 | Metric | Count | % of runnable |
 |---|---|---|
-| Runnable commands | 44 | — |
-| Exit OK + output match | 7 | 15.9% |
-| Exit failed (UnknownOperationException) | 22 | 50.0% |
-| Exit failed (table not found / state ordering) | 12 | 27.3% |
-| Exit failed (shell parse error) | 3 | 6.8% |
+| Runnable commands | 43 | — |
+| Exit OK + output match | 7 | 16.3% |
+| Exit failed (UnknownOperationException) | 22 | 51.2% |
+| Exit failed (table not found / state ordering) | 14 | 32.6% |
 
-The 22 `UnknownOperationException` failures are expected — they correspond exactly to the unsupported operations listed above. The 12 "table not found" failures are caused by RST files that assume a pre-existing table without a preceding `CreateTable` step (single-command examples that expect the table to already exist). The 3 shell parse errors are RST formatting issues in the aws-cli examples themselves (unbalanced quotes).
+The 22 `UnknownOperationException` failures are expected — they correspond exactly to the unsupported operations listed above. The 14 "table not found" failures are caused by RST files that assume a pre-existing table without a preceding `CreateTable` step (single-command examples that expect the table to already exist).
 
-Excluding the structurally-unrunnable commands (UnknownOperationException + shell errors), the effective pass rate is **7/19 = 36.8%** for commands that could succeed.
+Excluding the structurally-unrunnable commands (UnknownOperationException), the effective pass rate is **7/21 = 33.3%** for commands that could succeed.
 
 ## Configuration
 
