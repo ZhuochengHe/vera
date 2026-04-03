@@ -1,8 +1,8 @@
 # Vera AWS DynamoDB
 
-Local Amazon DynamoDB emulator with state machine enforcement.
+Local Amazon DynamoDB emulator with state machine enforcement, backup/restore, PITR, and global table support.
 
-Built on top of [DynamoDB Local](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.html) (official AWS image) as the data backend. Vera adds a state machine layer that enforces table lifecycle transitions and blocks invalid operations — matching the behavior of real DynamoDB.
+Built on top of [DynamoDB Local](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.html) (official AWS image) as the data backend. Vera adds a state machine layer that enforces table lifecycle transitions and blocks invalid operations — matching the behavior of real DynamoDB. It also implements several DynamoDB features that DynamoDB Local does not support natively, including on-demand backups, point-in-time recovery (PITR), global tables, and contributor insights.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ Built on top of [DynamoDB Local](https://docs.aws.amazon.com/amazondynamodb/late
 Client (AWS CLI / boto3 / SDK)
         │
         ▼
-vera-dynamodb  :5005   ← state machine + proxy (this service)
+vera-dynamodb  :5005   ← state machine + proxy + backup/PITR/global table
         │
         ▼
 dynamodb-local :8000   ← data storage (official AWS image, embedded)
@@ -24,9 +24,23 @@ CREATING → ACTIVE → UPDATING → ACTIVE
                   DELETING (terminal)
 ```
 
-All other operations (`PutItem`, `GetItem`, `Query`, `Scan`, `BatchWriteItem`, etc.) are passed straight through to DynamoDB Local.
+It also intercepts write operations (`PutItem`, `UpdateItem`, `DeleteItem`, `BatchWriteItem`, `TransactWriteItems`) for PITR logging, and implements 22 API actions that DynamoDB Local does not support.
 
-On startup, vera syncs existing tables from DynamoDB Local into its state machine as `ACTIVE`.
+All other operations (`GetItem`, `Query`, `Scan`, `BatchGetItem`, `TransactGetItems`, etc.) are passed straight through to DynamoDB Local.
+
+On startup, vera syncs existing tables from DynamoDB Local into its state machine as `ACTIVE`, and reloads persisted backup/PITR/replica state from internal metadata tables.
+
+### Internal tables
+
+Vera uses DynamoDB Local itself for persistent storage of metadata:
+
+| Table | Purpose |
+|---|---|
+| `__vera_meta__` | Backup records, PITR config, replica metadata, contributor insights |
+| `__vera_pitr_log__` | Write operation log for point-in-time recovery |
+| `__vera_bk_{id}__` | Cloned table data for each on-demand backup |
+
+These tables are hidden from `ListTables` and blocked from direct user access.
 
 ## Setup
 
@@ -139,10 +153,6 @@ print(resp["Item"])
 # {'order_id': {'S': 'ord-123'}, 'status': {'S': 'pending'}}
 ```
 
-## Testing
-
-Tests live in `tests/`. The test suite uses 44 AWS CLI commands crawled from the official [aws-cli examples](https://github.com/aws/aws-cli/tree/develop/awscli/examples/dynamodb) (stored in `tests/cli/dynamodb/`).
-
 ### Run the evaluator
 
 With the emulator running (`uv run python main.py`):
@@ -153,11 +163,6 @@ python eval_emulator.py test.sh
 ```
 
 The evaluator runs each command and reports pass/fail based on exit code (0 = pass). Results are saved to `eval_results.json` with full stdout/stderr for inspection.
-
-```
-Passed:  36  (81.1%)
-Failed:  8   (18.9%)
-```
 
 Options:
 
@@ -188,33 +193,83 @@ Blocked operations return the same error codes as real DynamoDB:
 - `ResourceInUseException` — table exists or is in a conflicting state
 - `ResourceNotFoundException` — table does not exist
 
+## Features
+
+### On-demand backups
+
+Full backup/restore lifecycle implemented on top of DynamoDB Local:
+
+- `CreateBackup` — clones the table schema and all items into an internal `__vera_bk_{id}__` table
+- `DeleteBackup` — marks the backup as `DELETED` and drops the clone table
+- `DescribeBackup` — returns full backup metadata (status, size, type, timestamps)
+- `ListBackups` — supports filtering by table name, backup type, and time range, with pagination
+- `RestoreTableFromBackup` — creates a new table from a backup's schema and items
+
+Backups are persistent across emulator restarts (stored in DynamoDB Local).
+
+### Point-in-time recovery (PITR)
+
+PITR is implemented via write-op logging and replay:
+
+1. `UpdateContinuousBackups` enables/disables PITR per table
+2. When PITR is enabled, all write operations (`PutItem`, `UpdateItem`, `DeleteItem`, `BatchWriteItem`, `TransactWriteItems`) are logged to `__vera_pitr_log__` with timestamps
+3. `RestoreTableToPointInTime` creates a new empty table, then replays logged write operations up to the specified `RestoreDateTime`
+4. `DescribeContinuousBackups` returns current PITR status
+
+### Global tables
+
+Both legacy (v1) and v2 global table APIs are supported:
+
+**Legacy API (v1):**
+- `CreateGlobalTable`, `DescribeGlobalTable`, `ListGlobalTables`, `UpdateGlobalTable`
+- `DescribeGlobalTableSettings`, `UpdateGlobalTableSettings`
+
+**v2 API (via UpdateTable):**
+- `UpdateTable` with `ReplicaUpdates` parameter — adds/removes replica metadata
+- `DescribeTable` — returns `Replicas` field with replica regions and status
+
+Since vera runs a single DynamoDB Local instance, replicas are metadata-only (no real multi-region data isolation). This matches LocalStack's approach.
+
+### Contributor insights
+
+- `DescribeContributorInsights` — returns status per table/index
+- `UpdateContributorInsights` — enables/disables per table/index
+- `ListContributorInsights` — lists all tables/indexes with contributor insights, with pagination
+
+### Other
+
+- `DescribeEndpoints` — returns vera's own address
+- `DescribeTableReplicaAutoScaling` / `UpdateTableReplicaAutoScaling` — returns/accepts auto scaling settings (stub values)
+
+### Response augmentation
+
+vera patches DynamoDB Local responses to better match real AWS behavior:
+
+- `DeleteTable` returns `TableStatus: "DELETING"` (DynamoDB Local returns `"ACTIVE"`)
+- `ListTables` hides internal `__vera_*` tables
+- `DescribeTable` injects `Replicas` field when global table replicas exist
+- `CreateTable` / `DescribeTable` responses include `SSEDescription` and `TableClassSummary` fields
+
 ## API Coverage
 
 ### Supported operations
 
-vera supports all operations that DynamoDB Local 3.3.0 implements. Table lifecycle operations go through vera's state machine; all others are proxied directly.
+vera supports all operations that DynamoDB Local 3.3.0 implements, plus 22 additional operations that DynamoDB Local does not support natively.
 
 | Layer | Operations |
 |---|---|
 | State machine | `CreateTable`, `DeleteTable`, `UpdateTable` |
-| Proxied directly | `DescribeTable`, `ListTables`, `PutItem`, `GetItem`, `UpdateItem`, `DeleteItem`, `BatchGetItem`, `BatchWriteItem`, `Query`, `Scan`, `TransactGetItems`, `TransactWriteItems`, `DescribeTimeToLive`, `UpdateTimeToLive`, `DescribeLimits`, and all other core data-plane operations |
+| Write ops (proxied + PITR logged) | `PutItem`, `UpdateItem`, `DeleteItem`, `BatchWriteItem`, `TransactWriteItems` |
+| Proxied directly | `DescribeTable`, `ListTables`, `GetItem`, `BatchGetItem`, `Query`, `Scan`, `TransactGetItems`, `DescribeTimeToLive`, `UpdateTimeToLive`, `DescribeLimits`, and all other core data-plane operations |
+| Vera-implemented (not in DDB Local) | `CreateBackup`, `DeleteBackup`, `DescribeBackup`, `ListBackups`, `RestoreTableFromBackup`, `RestoreTableToPointInTime`, `DescribeContinuousBackups`, `UpdateContinuousBackups`, `CreateGlobalTable`, `DescribeGlobalTable`, `DescribeGlobalTableSettings`, `ListGlobalTables`, `UpdateGlobalTable`, `UpdateGlobalTableSettings`, `DescribeContributorInsights`, `ListContributorInsights`, `UpdateContributorInsights`, `DescribeEndpoints`, `DescribeTableReplicaAutoScaling`, `UpdateTableReplicaAutoScaling` |
 
-### Unsupported operations
+## Testing
 
-The following operations are not implemented by DynamoDB Local 3.3.0 and return `UnknownOperationException`. They are not emulated by vera either.
-
-| Category | Operations |
-|---|---|
-| Backups | `CreateBackup`, `DeleteBackup`, `DescribeBackup`, `ListBackups`, `RestoreTableFromBackup`, `RestoreTableToPointInTime`, `DescribeContinuousBackups`, `UpdateContinuousBackups` |
-| Global Tables | `CreateGlobalTable`, `DescribeGlobalTable`, `DescribeGlobalTableSettings`, `ListGlobalTables`, `UpdateGlobalTable`, `UpdateGlobalTableSettings` |
-| Contributor Insights | `DescribeContributorInsights`, `ListContributorInsights`, `UpdateContributorInsights` |
-| Other | `DescribeEndpoints`, `DescribeTableReplicaAutoScaling`, `UpdateTableReplicaAutoScaling` |
-
-## Test Coverage
-
-Test commands are sourced from 41 RST example files crawled from the [aws-cli examples](https://github.com/aws/aws-cli/tree/develop/awscli/examples/dynamodb) repo, covering 74 example commands in total.
+Tests live in `tests/`. The test suite uses 43 AWS CLI commands crawled from the official [aws-cli examples](https://github.com/aws/aws-cli/tree/develop/awscli/examples/dynamodb) (stored in `tests/cli/dynamodb/`).
 
 ### Command filtering
+
+From 74 total example commands across 41 RST files:
 
 | Filter | Count | Reason |
 |---|---|---|
@@ -230,36 +285,26 @@ The evaluator compares actual emulator output against the RST golden output afte
 
 | Field | Reason |
 |---|---|
-| `CreationDateTime`, `LastIncreaseDateTime`, `LastDecreaseDateTime`, `LastUpdateToPayPerRequestDateTime`, `LatestStreamLabel` | Timestamps differ every run |
-| `TableArn`, `IndexArn`, `LatestStreamArn` | ARNs contain account ID and region, which differ from real AWS |
+| `CreationDateTime`, `LastIncreaseDateTime`, `LastDecreaseDateTime`, `LastUpdateToPayPerRequestDateTime`, `LatestStreamLabel`, `BackupCreationDateTime`, `TableCreationDateTime`, `EarliestRestorableDateTime`, `LatestRestorableDateTime`, `RestoreDateTime`, `LastUpdateDateTime` | Timestamps differ every run |
+| `TableArn`, `IndexArn`, `LatestStreamArn`, `KMSMasterKeyArn`, `BackupArn`, `GlobalTableArn`, `SourceTableArn`, `SourceBackupArn`, `AutoScalingRoleArn` | ARNs contain account ID and region, which differ from real AWS |
 | `TableId` | UUID generated per-run |
-| `ItemCount`, `TableSizeBytes`, `IndexSizeBytes` | Runtime data, not present at table creation |
+| `ItemCount`, `TableSizeBytes`, `IndexSizeBytes`, `BackupSizeBytes` | Runtime data, not stable across runs |
 | `TableNames` | RST golden output contains real AWS account table names |
 | `NextToken` | RST pagination tokens are fake placeholders |
 | `NumberOfDecreasesToday` | DynamoDB Local does not track daily throughput decrease counts |
+| `ContributorInsightsRuleList` | Rule names are generated |
 
 **Semantically compared fields** (present in comparison but normalized):
 
 | Field | Normalization |
 |---|---|
-| `TableStatus`, `IndexStatus` | Transient states map to their terminal equivalent: `CREATING` → `ACTIVE`, `UPDATING` → `ACTIVE`. vera completes state transitions synchronously, so the emulator never returns transient states. |
+| `TableStatus`, `IndexStatus`, `BackupStatus`, `GlobalTableStatus`, `ContributorInsightsStatus`, `ReplicaStatus`, `PointInTimeRecoveryStatus`, `ContinuousBackupsStatus` | Transient states map to their terminal equivalent: `CREATING` → `ACTIVE`, `UPDATING` → `ACTIVE`, `ENABLING` → `ENABLED`, `DISABLING` → `DISABLED`. vera completes state transitions synchronously. |
 
 Comparison uses **subset matching**: expected fields must be present and equal in the actual response, but the actual response may contain additional fields. List fields (e.g. `AttributeDefinitions`, `KeySchema`) are compared order-independently.
 
-`TableId` and `TableArn` are not used as inputs to any subsequent command in the RST examples — DynamoDB always references tables by name, not ID or ARN — so ignoring them does not mask cross-command dependency issues.
-
 ### Results
 
-| Metric | Count | % of runnable |
-|---|---|---|
-| Runnable commands | 43 | — |
-| Exit OK + output match | 7 | 16.3% |
-| Exit failed (UnknownOperationException) | 22 | 51.2% |
-| Exit failed (table not found / state ordering) | 14 | 32.6% |
-
-The 22 `UnknownOperationException` failures are expected — they correspond exactly to the unsupported operations listed above. The 14 "table not found" failures are caused by RST files that assume a pre-existing table without a preceding `CreateTable` step (single-command examples that expect the table to already exist).
-
-Excluding the structurally-unrunnable commands (UnknownOperationException), the effective pass rate is **7/21 = 33.3%** for commands that could succeed.
+Results will be updated after running the evaluator with the latest RST setup changes.
 
 ## Configuration
 

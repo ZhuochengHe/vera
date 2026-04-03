@@ -26,22 +26,44 @@ from utils.print_commands_with_endpoint import to_awscli_command
 # Keys whose values are dynamic (timestamps, ARNs, UUIDs, counters, sizes).
 # Stripped from both expected and actual before comparison.
 DYNAMIC_KEYS = {
+    # Timestamps — differ every run
     "CreationDateTime",
-    "TableArn",
-    "TableId",
-    "IndexArn",
-    "LatestStreamArn",
-    "KMSMasterKeyArn",         # contains account ID and region, differs from real AWS
-    "LatestStreamLabel",
     "LastIncreaseDateTime",
     "LastDecreaseDateTime",
     "LastUpdateToPayPerRequestDateTime",
+    "LatestStreamLabel",
+    "BackupCreationDateTime",
+    "TableCreationDateTime",
+    "EarliestRestorableDateTime",
+    "LatestRestorableDateTime",
+    "RestoreDateTime",
+    "LastUpdateDateTime",
+    # ARNs — contain account ID and region, differ from real AWS
+    "TableArn",
+    "IndexArn",
+    "LatestStreamArn",
+    "KMSMasterKeyArn",
+    "BackupArn",
+    "GlobalTableArn",
+    "SourceTableArn",
+    "SourceBackupArn",
+    "AutoScalingRoleArn",
+    # IDs — UUID generated per-run
+    "TableId",
+    # Runtime data — not stable across runs
     "ItemCount",
     "TableSizeBytes",
     "IndexSizeBytes",
-    "TableNames",          # contains real account table names in RST golden output
-    "NextToken",           # pagination token; value is fake in RST
-    "NumberOfDecreasesToday",  # not returned by DynamoDB Local
+    "BackupSizeBytes",
+    # RST golden output contains real AWS account data
+    "TableNames",
+    "NextToken",
+    # Endpoint address differs between emulator and real AWS
+    "Address",
+    # DynamoDB Local does not track these
+    "NumberOfDecreasesToday",
+    # Vera stubs — rule names are generated
+    "ContributorInsightsRuleList",
 }
 
 # Status fields that are compared semantically rather than literally.
@@ -50,13 +72,30 @@ DYNAMIC_KEYS = {
 _STATUS_EQUIVALENCES = {
     "CREATING": "ACTIVE",
     "UPDATING": "ACTIVE",
-    "DELETING": "DELETING",  # both sides should be DELETING or absent
+    "DELETING": "DELETING",
+    "ENABLING": "ENABLED",
+    "DISABLING": "DISABLED",
 }
-STATUS_KEYS = {"TableStatus", "IndexStatus"}
+# BackupStatus uses CREATING→AVAILABLE instead of CREATING→ACTIVE
+_BACKUP_STATUS_EQUIVALENCES = {
+    "CREATING": "AVAILABLE",
+}
+STATUS_KEYS = {
+    "TableStatus",
+    "IndexStatus",
+    "BackupStatus",
+    "GlobalTableStatus",
+    "ContributorInsightsStatus",
+    "ReplicaStatus",
+    "PointInTimeRecoveryStatus",
+    "ContinuousBackupsStatus",
+}
 
 
-def _normalize_status(value: str) -> str:
+def _normalize_status(value: str, key: str = None) -> str:
     """Map transient status to its terminal equivalent for comparison."""
+    if key == "BackupStatus":
+        return _BACKUP_STATUS_EQUIVALENCES.get(value, value)
     return _STATUS_EQUIVALENCES.get(value, value)
 
 
@@ -95,7 +134,7 @@ def is_subset(expected, actual, _key=None) -> bool:
         except TypeError:
             return all(is_subset(e, a) for e, a in zip(expected, actual))
     if _key in STATUS_KEYS and isinstance(expected, str) and isinstance(actual, str):
-        return _normalize_status(expected) == _normalize_status(actual)
+        return _normalize_status(expected, _key) == _normalize_status(actual, _key)
     return expected == actual
 
 
@@ -217,8 +256,26 @@ def reset_emulator(endpoint_url):
             except Exception:
                 pass
 
+    # Also delete all backups (they persist independently of tables)
+    backup_count = 0
+    try:
+        backups = ddb_request("ListBackups", {}).get("BackupSummaries", [])
+        for b in backups:
+            try:
+                ddb_request("DeleteBackup", {"BackupArn": b["BackupArn"]})
+                backup_count += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    deleted = []
     if table_names:
-        print(f"  Reset: deleted {len(table_names)} table(s): {', '.join(table_names)}")
+        deleted.append(f"{len(table_names)} table(s)")
+    if backup_count:
+        deleted.append(f"{backup_count} backup(s)")
+    if deleted:
+        print(f"  Reset: deleted {', '.join(deleted)}")
     else:
         print("  Reset: no tables to delete")
 

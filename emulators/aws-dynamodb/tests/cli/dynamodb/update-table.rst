@@ -1,11 +1,12 @@
 **Example 1: To modify a table's billing mode**
 
-The following ``update-table`` example increases the provisioned read and write capacity on the ``MusicCollection`` table. ::
+First, create the ``MusicCollection`` table. ::
 
-    aws dynamodb update-table \
+    aws dynamodb create-table \
         --table-name MusicCollection \
-        --billing-mode PROVISIONED \
-        --provisioned-throughput ReadCapacityUnits=15,WriteCapacityUnits=10 
+        --attribute-definitions AttributeName=Artist,AttributeType=S AttributeName=SongTitle,AttributeType=S \
+        --key-schema AttributeName=Artist,KeyType=HASH AttributeName=SongTitle,KeyType=RANGE \
+        --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
 
 Output::
 
@@ -13,9 +14,51 @@ Output::
         "TableDescription": {
             "AttributeDefinitions": [
                 {
-                    "AttributeName": "AlbumTitle",
+                    "AttributeName": "Artist",
                     "AttributeType": "S"
                 },
+                {
+                    "AttributeName": "SongTitle",
+                    "AttributeType": "S"
+                }
+            ],
+            "TableName": "MusicCollection",
+            "KeySchema": [
+                {
+                    "AttributeName": "Artist",
+                    "KeyType": "HASH"
+                },
+                {
+                    "AttributeName": "SongTitle",
+                    "KeyType": "RANGE"
+                }
+            ],
+            "TableStatus": "CREATING",
+            "CreationDateTime": "2024-01-01T00:00:00.000000+00:00",
+            "ProvisionedThroughput": {
+                "NumberOfDecreasesToday": 0,
+                "ReadCapacityUnits": 5,
+                "WriteCapacityUnits": 5
+            },
+            "TableSizeBytes": 0,
+            "ItemCount": 0,
+            "TableArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MusicCollection",
+            "TableId": "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+        }
+    }
+
+The following ``update-table`` example increases the provisioned read and write capacity on the ``MusicCollection`` table. ::
+
+    aws dynamodb update-table \
+        --table-name MusicCollection \
+        --billing-mode PROVISIONED \
+        --provisioned-throughput ReadCapacityUnits=15,WriteCapacityUnits=10
+
+Output::
+
+    {
+        "TableDescription": {
+            "AttributeDefinitions": [
                 {
                     "AttributeName": "Artist",
                     "AttributeType": "S"
@@ -39,7 +82,6 @@ Output::
             "TableStatus": "UPDATING",
             "CreationDateTime": "2020-05-26T15:59:49.473000-07:00",
             "ProvisionedThroughput": {
-                "LastIncreaseDateTime": "2020-07-28T13:18:18.921000-07:00",
                 "NumberOfDecreasesToday": 0,
                 "ReadCapacityUnits": 15,
                 "WriteCapacityUnits": 10
@@ -165,6 +207,53 @@ For more information, see `Updating a Table <https://docs.aws.amazon.com/amazond
 
 **Example 3: To enable DynamoDB Streams on a table**
 
+First, create the ``MusicCollection`` table. ::
+
+    aws dynamodb create-table \
+        --table-name MusicCollection \
+        --attribute-definitions AttributeName=Artist,AttributeType=S AttributeName=SongTitle,AttributeType=S \
+        --key-schema AttributeName=Artist,KeyType=HASH AttributeName=SongTitle,KeyType=RANGE \
+        --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+
+Output::
+
+    {
+        "TableDescription": {
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "Artist",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "SongTitle",
+                    "AttributeType": "S"
+                }
+            ],
+            "TableName": "MusicCollection",
+            "KeySchema": [
+                {
+                    "AttributeName": "Artist",
+                    "KeyType": "HASH"
+                },
+                {
+                    "AttributeName": "SongTitle",
+                    "KeyType": "RANGE"
+                }
+            ],
+            "TableStatus": "CREATING",
+            "CreationDateTime": "2024-01-01T00:00:00.000000+00:00",
+            "ProvisionedThroughput": {
+                "NumberOfDecreasesToday": 0,
+                "ReadCapacityUnits": 5,
+                "WriteCapacityUnits": 5
+            },
+            "TableSizeBytes": 0,
+            "ItemCount": 0,
+            "TableArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MusicCollection",
+            "TableId": "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+        }
+    }
+
 The following command enables DynamoDB Streams on the ``MusicCollection`` table. ::
 
     aws dynamodb update-table \
@@ -276,6 +365,53 @@ Output::
 For more information, see `Updating a Table <https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/WorkingWithTables.Basics.html#WorkingWithTables.Basics.UpdateTable>`__ in the *Amazon DynamoDB Developer Guide*.
 
 **Example 4: To enable server-side encryption**
+
+First, create the ``MusicCollection`` table. ::
+
+    aws dynamodb create-table \
+        --table-name MusicCollection \
+        --attribute-definitions AttributeName=Artist,AttributeType=S AttributeName=SongTitle,AttributeType=S \
+        --key-schema AttributeName=Artist,KeyType=HASH AttributeName=SongTitle,KeyType=RANGE \
+        --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+
+Output::
+
+    {
+        "TableDescription": {
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "Artist",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "SongTitle",
+                    "AttributeType": "S"
+                }
+            ],
+            "TableName": "MusicCollection",
+            "KeySchema": [
+                {
+                    "AttributeName": "Artist",
+                    "KeyType": "HASH"
+                },
+                {
+                    "AttributeName": "SongTitle",
+                    "KeyType": "RANGE"
+                }
+            ],
+            "TableStatus": "CREATING",
+            "CreationDateTime": "2024-01-01T00:00:00.000000+00:00",
+            "ProvisionedThroughput": {
+                "NumberOfDecreasesToday": 0,
+                "ReadCapacityUnits": 5,
+                "WriteCapacityUnits": 5
+            },
+            "TableSizeBytes": 0,
+            "ItemCount": 0,
+            "TableArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MusicCollection",
+            "TableId": "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+        }
+    }
 
 The following example enables server-side encryption on the ``MusicCollection`` table. ::
 
