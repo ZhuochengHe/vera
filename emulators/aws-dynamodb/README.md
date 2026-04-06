@@ -314,6 +314,7 @@ Dynamic fields fall into two categories:
 | `LastUpdateToPayPerRequestDateTime` | Only present when billing mode changed from PAY_PER_REQUEST; vera does not track |
 | `NextToken` | RST golden output contains fake AWS pagination tokens; vera uses simple integer tokens |
 | `ItemCollectionMetrics` | DynamoDB Local does not return item collection metrics |
+| `ContributorInsightsSummaries` | Pagination differs: RST reflects real AWS table set; vera has different tables at eval time |
 
 **Semantically compared fields** (present in comparison but normalized):
 
