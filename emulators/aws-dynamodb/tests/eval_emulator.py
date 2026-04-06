@@ -87,6 +87,8 @@ OPTIONAL_DYNAMIC_KEYS = {
     "ItemCollectionMetrics",
     # Only present when billing mode changed from PAY_PER_REQUEST → PROVISIONED
     "LastUpdateToPayPerRequestDateTime",
+    # Pagination differs: RST reflects real AWS table set, vera has different tables
+    "ContributorInsightsSummaries",
 }
 
 # Combined set for convenience
