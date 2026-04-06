@@ -298,8 +298,10 @@ Dynamic fields fall into two categories:
 | `TableArn`, `IndexArn`, `LatestStreamArn`, `BackupArn`, `GlobalTableArn`, `SourceTableArn`, `SourceBackupArn` | ARNs contain account ID / region that differ from real AWS |
 | `KMSMasterKeyArn`, `AutoScalingRoleArn` | ARNs vera generates with fake account ID |
 | `TableId` | UUID vera generates per table (DynamoDB Local returns empty string) |
+| `TableNames` | Vera returns actual local table names (differ from RST golden which has real AWS tables) |
 | `ItemCount`, `TableSizeBytes`, `IndexSizeBytes`, `BackupSizeBytes` | Runtime data — vera returns actual values, RST reflects pre-populated real AWS tables |
 | `NumberOfDecreasesToday` | DynamoDB Local always returns 0; key is present |
+| `ReadCapacityUnits`, `WriteCapacityUnits` | Vera injects from stored provisioned throughput; values are structurally correct |
 | `BillingModeSummary`, `Backfilling`, `RestoreInProgress` | Vera injects these; values are accurate |
 | `ContributorInsightsRuleList` | Vera generates rule names with real timestamp suffix |
 | `ScalingPolicies`, `PolicyName`, `TargetTrackingScalingPolicyConfiguration` | Vera constructs autoscaling policy stubs |
@@ -310,9 +312,8 @@ Dynamic fields fall into two categories:
 | Field | Reason |
 |---|---|
 | `LastUpdateToPayPerRequestDateTime` | Only present when billing mode changed from PAY_PER_REQUEST; vera does not track |
-| `TableNames`, `NextToken` | RST golden output contains real AWS account data / fake pagination tokens |
+| `NextToken` | RST golden output contains fake AWS pagination tokens; vera uses simple integer tokens |
 | `ItemCollectionMetrics` | DynamoDB Local does not return item collection metrics |
-| `ReadCapacityUnits`, `WriteCapacityUnits` | Per-type capacity breakdown not returned in `ConsumedCapacity` by DynamoDB Local |
 
 **Semantically compared fields** (present in comparison but normalized):
 

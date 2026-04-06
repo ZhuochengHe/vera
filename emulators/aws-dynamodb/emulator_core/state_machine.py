@@ -147,6 +147,8 @@ class TableStateMachine:
         self._tables: Dict[str, str] = {}
         # Per-table UUIDs (vera-generated, since DDB Local returns empty string)
         self.table_ids: Dict[str, str] = {}
+        # Per-table provisioned throughput (rcu, wcu) — used to patch ConsumedCapacity
+        self.table_throughput: Dict[str, Dict[str, int]] = {}
         # In-memory caches (populated from __vera_meta__ on startup)
         self.backups: Dict[str, BackupRecord] = {}
         self.replicas: Dict[str, Dict[str, ReplicaRecord]] = {}
@@ -328,6 +330,7 @@ class TableStateMachine:
     def remove(self, table_name: str) -> None:
         self._tables.pop(table_name, None)
         self.table_ids.pop(table_name, None)
+        self.table_throughput.pop(table_name, None)
         self.replicas.pop(table_name, None)
         self.pitr_enabled.pop(table_name, None)
         # Clean up contributor insights records for this table
@@ -350,6 +353,7 @@ class TableStateMachine:
         """
         self._tables.clear()
         self.table_ids.clear()
+        self.table_throughput.clear()
         self.backups.clear()
         self.replicas.clear()
         self.pitr_enabled.clear()

@@ -198,6 +198,16 @@ def sync_from_dynamodb_local() -> None:
         if status == 200:
             table_names = body.get("TableNames", [])
             sm.import_existing(table_names)
+            # Cache provisioned throughput for existing tables
+            for name in table_names:
+                if is_vera_internal(name):
+                    continue
+                _, td = _describe_table_from_local(name)
+                pt = td.get("ProvisionedThroughput", {})
+                sm.table_throughput[name] = {
+                    "ReadCapacityUnits": pt.get("ReadCapacityUnits", 5),
+                    "WriteCapacityUnits": pt.get("WriteCapacityUnits", 5),
+                }
             logger.info(f"Synced {len([n for n in table_names if not is_vera_internal(n)])} tables from DynamoDB Local")
         else:
             logger.warning(f"ListTables sync failed: {status}")
@@ -214,6 +224,38 @@ def _normalize_provisioned_throughput(pt: dict) -> dict:
     if pt and "NumberOfDecreasesToday" not in pt:
         pt["NumberOfDecreasesToday"] = 0
     return pt
+
+
+def _patch_consumed_capacity(resp_body: dict) -> None:
+    """Inject ReadCapacityUnits/WriteCapacityUnits into ConsumedCapacity entries that lack them.
+
+    DDB Local returns ConsumedCapacity.CapacityUnits but omits the per-type breakdown.
+    We fill in from the stored provisioned throughput for the table.
+    """
+    for entry in resp_body.get("ConsumedCapacity", []):
+        table_name = entry.get("TableName", "")
+        pt = sm.table_throughput.get(table_name)
+        if pt is None:
+            # Try to fetch from DDB Local if not cached
+            _, td = _describe_table_from_local(table_name)
+            pt = td.get("ProvisionedThroughput", {})
+        if pt:
+            entry.setdefault("ReadCapacityUnits", pt.get("ReadCapacityUnits", 5))
+            entry.setdefault("WriteCapacityUnits", pt.get("WriteCapacityUnits", 5))
+
+
+def _maybe_patch_consumed_capacity(resp: Response) -> Response:
+    """If the response has ConsumedCapacity, patch in RCU/WCU from stored throughput."""
+    if resp.status_code != 200:
+        return resp
+    try:
+        resp_body = json.loads(resp.get_data())
+        if "ConsumedCapacity" not in resp_body:
+            return resp
+        _patch_consumed_capacity(resp_body)
+        return Response(json.dumps(resp_body), status=200, mimetype="application/x-amz-json-1.0")
+    except Exception:
+        return resp
 
 
 def _augment_create_table_response(resp_body: dict, request_body: dict) -> dict:
@@ -233,6 +275,13 @@ def _augment_create_table_response(resp_body: dict, request_body: dict) -> dict:
     if "BillingModeSummary" not in desc:
         billing = request_body.get("BillingMode", "PROVISIONED")
         desc["BillingModeSummary"] = {"BillingMode": billing}
+
+    # Store provisioned throughput for ConsumedCapacity patching
+    pt = desc.get("ProvisionedThroughput") or request_body.get("ProvisionedThroughput") or {}
+    sm.table_throughput[table_name] = {
+        "ReadCapacityUnits": pt.get("ReadCapacityUnits", 5),
+        "WriteCapacityUnits": pt.get("WriteCapacityUnits", 5),
+    }
 
     # Normalize ProvisionedThroughput (add NumberOfDecreasesToday if missing)
     if "ProvisionedThroughput" in desc:
@@ -416,6 +465,12 @@ def handle_update_table(body: dict, raw_body: bytes) -> Response:
             # Normalize ProvisionedThroughput fields
             if "ProvisionedThroughput" in desc:
                 _normalize_provisioned_throughput(desc["ProvisionedThroughput"])
+                # Update stored throughput when provisioned values change
+                pt = desc["ProvisionedThroughput"]
+                sm.table_throughput[table_name] = {
+                    "ReadCapacityUnits": pt.get("ReadCapacityUnits", 5),
+                    "WriteCapacityUnits": pt.get("WriteCapacityUnits", 5),
+                }
             for gsi in desc.get("GlobalSecondaryIndexes", []):
                 if "ProvisionedThroughput" in gsi:
                     _normalize_provisioned_throughput(gsi["ProvisionedThroughput"])
@@ -1490,11 +1545,11 @@ def handle_request():
     elif action == "ListTables":
         return handle_list_tables(body, raw_body)
     elif action in _WRITE_ACTIONS:
-        return handle_write_op(action, body, raw_body)
+        return _maybe_patch_consumed_capacity(handle_write_op(action, body, raw_body))
     elif action in _VERA_HANDLERS:
         return _VERA_HANDLERS[action](body)
     else:
-        return proxy(raw_body)
+        return _maybe_patch_consumed_capacity(proxy(raw_body))
 
 
 # Need this import for PITR handler

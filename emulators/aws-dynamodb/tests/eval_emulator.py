@@ -49,6 +49,11 @@ REQUIRED_DYNAMIC_KEYS = {
     "IndexSizeBytes",
     "BackupSizeBytes",
     "NumberOfDecreasesToday",
+    # Table list — vera returns actual local tables (differ from RST golden which has real AWS tables)
+    "TableNames",
+    # Capacity units — vera injects from stored provisioned throughput
+    "ReadCapacityUnits",
+    "WriteCapacityUnits",
     # Structural fields emulator always returns
     "BillingModeSummary",
     "Backfilling",
@@ -74,16 +79,12 @@ REQUIRED_DYNAMIC_KEYS = {
 # Dynamic fields that are completely stripped from both expected and actual.
 # Use only for fields the emulator genuinely does not produce.
 OPTIONAL_DYNAMIC_KEYS = {
-    # RST golden output contains real AWS account data / fake pagination tokens
-    "TableNames",
+    # RST golden output contains fake pagination tokens; vera uses simple integer tokens
     "NextToken",
     # Endpoint address differs
     "Address",
     # Not produced by emulator
     "ItemCollectionMetrics",
-    # DDB Local does not return capacity unit breakdowns in ConsumedCapacity
-    "ReadCapacityUnits",
-    "WriteCapacityUnits",
     # Only present when billing mode changed from PAY_PER_REQUEST → PROVISIONED
     "LastUpdateToPayPerRequestDateTime",
 }
